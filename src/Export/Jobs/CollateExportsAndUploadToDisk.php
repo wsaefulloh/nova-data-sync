@@ -17,6 +17,7 @@ use Spatie\SimpleExcel\SimpleExcelReader;
 use Spatie\SimpleExcel\SimpleExcelWriter;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Carbon;
+use Illuminate\Queue\ManuallyFailedException;
 use DateTime;
 use Throwable;
 
