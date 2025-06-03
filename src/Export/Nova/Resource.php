@@ -1,6 +1,6 @@
 <?php
 
-namespace Coreproc\NovaDataSync\Export\Nova;
+namespace Wsaefulloh\NovaDataSync\Export\Nova;
 
 use Illuminate\Database\Eloquent\Builder;
 use Laravel\Nova\Http\Requests\NovaRequest;

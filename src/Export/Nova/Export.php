@@ -1,11 +1,12 @@
 <?php
 
-namespace Coreproc\NovaDataSync\Export\Nova;
+namespace Wsaefulloh\NovaDataSync\Export\Nova;
 
 use App\Nova\Resource;
-use Coreproc\NovaDataSync\Enum\Status as StatusEnum;
+use Wsaefulloh\NovaDataSync\Enum\Status as StatusEnum;
 use Ebess\AdvancedNovaMediaLibrary\Fields\Files;
 use Illuminate\Auth\Access\AuthorizationException;
+use Wsaefulloh\NovaDataSync\Export\Nova\Action\ExportStopAction;
 use Illuminate\Http\Request;
 use Laravel\Nova\Fields\DateTime;
 use Laravel\Nova\Fields\ID;
@@ -20,7 +21,7 @@ class Export extends Resource
     /**
      * The model the resource corresponds to.
      */
-    public static string $model = \Coreproc\NovaDataSync\Export\Models\Export::class;
+    public static string $model = \Wsaefulloh\NovaDataSync\Export\Models\Export::class;
 
     /**
      * The single value that should be used to represent the resource when being displayed.
@@ -115,7 +116,10 @@ class Export extends Resource
     public function actions(NovaRequest $request): array
     {
         return [
-            //
+            (new ExportStopAction())
+                ->canRun(fn ($request, $model) =>
+                    in_array($model->status, [StatusEnum::PENDING->value, StatusEnum::IN_PROGRESS->value])
+                ),
         ];
     }
 

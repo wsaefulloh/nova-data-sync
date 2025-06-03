@@ -1,5 +1,5 @@
 {
-  "name": "coreproc/nova-data-sync",
+  "name": "wsaefulloh/nova-data-sync",
   "description": "A Laravel Nova tool for importing and exporting data from CSV or Excel files.",
   "keywords": [
     "laravel",
@@ -17,13 +17,13 @@
   },
   "autoload": {
     "psr-4": {
-      "Coreproc\\NovaDataSync\\": "src/"
+      "Wsaefulloh\\NovaDataSync\\": "src/"
     }
   },
   "extra": {
     "laravel": {
       "providers": [
-        "Coreproc\\NovaDataSync\\ToolServiceProvider"
+        "Wsaefulloh\\NovaDataSync\\ToolServiceProvider"
       ]
     }
   },

@@ -15,7 +15,7 @@ composer require coreproc/nova-data-sync
 Publish the package's config and migrations:
 
 ```bash
-php artisan vendor:publish --provider="Coreproc\NovaDataSync\ToolServiceProvider"
+php artisan vendor:publish --provider="Wsaefulloh\NovaDataSync\ToolServiceProvider"
 ```
 
 This package requires [Laravel Horizon](https://laravel.com/docs/10.x/horizon) and comes with the package. If you have
@@ -67,7 +67,7 @@ public function tools()
 {
     return [
         // ...
-        new \Coreproc\NovaDataSync\NovaDataSync(),
+        new \Wsaefulloh\NovaDataSync\NovaDataSync(),
     ];
 }
 ```
@@ -89,7 +89,7 @@ Here is a sample `ImportProcessor`:
 
 namespace App\Nova\Imports\TestImport;
 
-use Coreproc\NovaDataSync\Import\Jobs\ImportProcessor;use Illuminate\Support\Facades\Log;
+use Wsaefulloh\NovaDataSync\Import\Jobs\ImportProcessor;use Illuminate\Support\Facades\Log;
 
 class TestImportProcessor extends ImportProcessor
 {
@@ -144,7 +144,7 @@ Next, create an `ImportNovaAction` class and define the `$processor` class you j
 
 namespace App\Nova\Imports\TestImport;
 
-use Coreproc\NovaDataSync\Import\Nova\Actions\ImportNovaAction;
+use Wsaefulloh\NovaDataSync\Import\Nova\Actions\ImportNovaAction;
 
 class TestImportAction extends ImportNovaAction
 {
@@ -175,7 +175,7 @@ If you want to use the Import feature without the Nova Action, you can still use
 example of grabbing a file from S3 and importing it:
 
 ```php
-use Coreproc\NovaDataSync\Import\Actions\ImportAction;
+use Wsaefulloh\NovaDataSync\Import\Actions\ImportAction;
 
 // Get the file from s3
 $file = Storage::disk('s3')->get('file-for-import.csv');
@@ -222,7 +222,7 @@ Here is a sample `ExportProcessor`:
 namespace App\Nova\Exports;
 
 use App\Models\User;
-use Coreproc\NovaDataSync\Export\Jobs\ExportProcessor;
+use Wsaefulloh\NovaDataSync\Export\Jobs\ExportProcessor;
 use Illuminate\Contracts\Database\Query\Builder;
 
 class UserExportProcessor extends ExportProcessor
@@ -240,7 +240,7 @@ database table.
 ```php
 namespace App\Nova\Exports;
 
-use Coreproc\NovaDataSync\Export\Jobs\ExportProcessor;
+use Wsaefulloh\NovaDataSync\Export\Jobs\ExportProcessor;
 use DB;
 use Illuminate\Contracts\Database\Query\Builder;
 
@@ -263,8 +263,8 @@ created.
 ```php
 namespace App\Nova\Exports;
 
-use Coreproc\NovaDataSync\Export\Jobs\ExportProcessor;
-use Coreproc\NovaDataSync\Export\Nova\Action\ExportNovaAction;
+use Wsaefulloh\NovaDataSync\Export\Jobs\ExportProcessor;
+use Wsaefulloh\NovaDataSync\Export\Nova\Action\ExportNovaAction;
 
 class UserExportAction extends ExportNovaAction
 {

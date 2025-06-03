@@ -1,6 +1,6 @@
 <?php
 
-namespace Coreproc\NovaDataSync\Enum;
+namespace Wsaefulloh\NovaDataSync\Enum;
 
 enum Status: string
 {
@@ -8,4 +8,6 @@ enum Status: string
     case IN_PROGRESS = "In Progress";
     case FAILED = "Failed";
     case COMPLETED = "Completed";
+    case STOPPING = "Stopping";
+    case STOPPED = "Stopped";
 }

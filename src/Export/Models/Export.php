@@ -1,6 +1,6 @@
 <?php
 
-namespace Coreproc\NovaDataSync\Export\Models;
+namespace Wsaefulloh\NovaDataSync\Export\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
@@ -20,12 +20,20 @@ class Export extends Model implements HasMedia
         'file_total_rows',
         'started_at',
         'completed_at',
+        'batch_id',
+        'batch_uuid'
     ];
 
     protected $casts = [
         'started_at' => 'datetime',
         'completed_at' => 'datetime',
     ];
+
+    public function __construct(array $attributes = [])
+    {
+        parent::__construct($attributes);
+        $this->setTable(config('nova-data-sync.exports.table_name', 'exports'));
+    }
 
     public function registerMediaCollections(): void
     {

@@ -1,8 +1,8 @@
 <?php
 
-namespace Coreproc\NovaDataSync\Export\Nova\Action;
+namespace Wsaefulloh\NovaDataSync\Export\Nova\Action;
 
-use Coreproc\NovaDataSync\Export\Jobs\ExportProcessor;
+use Wsaefulloh\NovaDataSync\Export\Jobs\ExportProcessor;
 use Illuminate\Bus\Queueable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Support\Collection;

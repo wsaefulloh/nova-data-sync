@@ -1,128 +1,206 @@
 <?php
 
-namespace Coreproc\NovaDataSync\Export\Jobs;
+namespace Wsaefulloh\NovaDataSync\Export\Jobs;
 
-use Coreproc\NovaDataSync\Enum\Status;
-use Coreproc\NovaDataSync\Export\Models\Export;
+use Wsaefulloh\NovaDataSync\Enum\Status;
+use Wsaefulloh\NovaDataSync\Export\Models\Export;
+use Wsaefulloh\NovaDataSync\Import\Events\ExportStartedEvent;
+use Wsaefulloh\NovaDataSync\Export\Jobs\CollateExportsAndUploadToDisk;
+use Wsaefulloh\NovaDataSync\Export\Jobs\ExportToCsv;
 use Illuminate\Bus\Batch;
+use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Database\Query\Builder;
 use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Auth;
+use stdClass;
 use Throwable;
+use Illuminate\Bus\Batchable;
 
 abstract class ExportProcessor implements ShouldQueue
 {
+    use Batchable;
     protected ?Authenticatable $user = null;
+    protected int $perPage;
+    protected string $name;
+    protected string $disk;
+    protected string $directory;
 
-    protected string $disk = '';
+    protected string $queueName = 'exports';
 
-    protected string $name = '';
+    public function __construct(array $options = [])
+    {
+        if (isset($options['user'])) {
+            $this->user = $options['user'];
+            $this->userId = $options['user']->id ?? null;
+            $this->userType = get_class($options['user']);
+        }
 
-    protected string $directory = '';
+        if (isset($options['perPage'])) {
+            $this->perPage = $options['perPage'];
+        }
 
-    abstract public function query(): Builder;
+        if (isset($options['name'])) {
+            $this->name = $options['name'];
+        }
 
-    /**
-     * @throws Throwable
-     */
+        if (isset($options['disk'])) {
+            $this->disk = $options['disk'];
+        }
+
+        if (isset($options['directory'])) {
+            $this->directory = $options['directory'];
+        }
+    }
+
     public function handle(): void
     {
-        $jobs = [];
-        $perPage = 500; // Number of items per page
-        $totalRecords = $this->query()->count();
-        $totalPages = ceil($totalRecords / $perPage);
+        $this->initialize();
+        $exportName = $this->name;
+        $exportDisk = $this->disk;
+        $exportDirectory = $this->directory;
+
+        $query = $this->query();
+        $totalRow = $query->count();
+        $totalPage = ceil($totalRow / $this->perPage);
         $batchUuid = Str::uuid();
-        $exportName = $this->name();
-        $exportDisk = $this->disk();
-        $exportDirectory = $this->directory();
 
-        Log::info('[' . self::class . '] Exporting query', ['count' => $totalRecords]);
+        Log::info(sprintf('[%s] [%s] Start exporting', self::class, $batchUuid), [
+            'totalRow' => $totalRow,
+            'totalPage' => $totalPage,
+            'perPage' => $this->perPage,
+            'exportName' => $exportName,
+            'exportDisk' => $exportDisk,
+            'exportDirectory' => $exportDirectory,
+            'queueName' => $this->queueName,
+            'batch_uuid'=> $batchUuid
+        ]);
 
-        $export = $this->initializeExport($totalRecords);
+        $export = $this->initializeExport($totalRow, $batchUuid);
 
-        for ($page = 1; $page <= $totalPages; $page++) {
-            $jobs[] = new ExportToCsv($this, $page, $perPage, $batchUuid);
+        if ($totalRow <= 0) {
+            $export->update([
+                'status' => Status::COMPLETED->value,
+                'completed_at' => now(),
+            ]);
+            Log::info(sprintf('[%s] [%s] No records to export', self::class, $batchUuid), $export->toArray());
+            return;
         }
+
+        $jobs = [];
+        for ($page = 1; $page <= $totalPage; $page++) {
+            $jobs[] = (new ExportToCsv($this, $page, $this->perPage, $batchUuid))
+                ->onQueue($this->queueName);
+        }
+
+        $totalJobs = count($jobs);
+
+        Log::info(sprintf('[%s] [%s] Jobs setup', self::class, $batchUuid), [
+            'Total Jobs' => $totalJobs
+        ]);
 
         Bus::batch($jobs)
             ->progress(function (Batch $batch) use ($export) {
                 $export->update([
                     'status' => Status::IN_PROGRESS->value,
+                    'batch_id' => $batch->id,
                 ]);
             })
-            ->then(function (Batch $batch) use ($export, $batchUuid, $exportDisk, $exportName, $exportDirectory) {
-                // Collate and upload to disk job
-                dispatch(new CollateExportsAndUploadToDisk($export, $batchUuid, $exportName, $exportDisk, $exportDirectory));
+            ->then(function (Batch $batch) use ($export, $batchUuid, $exportName, $exportDisk, $exportDirectory, $totalJobs) {
+                Log::info(sprintf('[%s] [%s] Batch then', self::class, $batchUuid), [
+                    'export' => $export,
+                    'batchId' => $batch->id,
+                    'exportName' => $exportName,
+                    'exportDisk' => $exportDisk,
+                    'exportDirectory' => $exportDirectory
+                ]);
 
-                Log::debug("[{$exportName}] Export completed.", [
-                    "exportId" => $export->id,
-                    "batchId" => $batch->id,
-                    "totalJobs" => $batch->totalJobs,
-                    "failedJobs" => $batch->failedJobs,
+                dispatch((new CollateExportsAndUploadToDisk(
+                    $this->queueName,
+                    $export,
+                    $batchUuid,
+                    $batch->id,
+                    $exportName,
+                    $exportDisk,
+                    $exportDirectory,
+                    $totalJobs
+                ))->onQueue('export-collate'));
+            })
+            ->catch(function (Batch $batch, Throwable $e) use ($export, $batchUuid) {
+                Log::error(sprintf('[%s] [%s] Batch catch', self::class, $batchUuid), [
+                    'batchId' => $batch->id,
+                    'exception' => $e,
+                ]);
+
+                $export->update([
+                    'status' => Status::FAILED
                 ]);
             })
             ->allowFailures()
-            ->name($this->name())
+            ->name($exportName)
+            ->onQueue($this->queueName)
             ->dispatch();
     }
 
-    protected function name(): string
+    private function initialize(): void
     {
-        if (empty($this->name)) {
-            // return the base name of the class
-            return class_basename($this);
-        }
-
-        return $this->name;
+        if (empty($this->name)) $this->name = class_basename($this);
+        if (empty($this->disk)) $this->disk = 'public';
+        if (empty($this->perPage)) $this->perPage = 2000;
+        if (empty($this->directory)) $this->directory = '';
     }
 
-    protected function directory(): string
+    private function initializeExport(int $totalRow, string $batchUuid): Export
     {
-        return $this->directory;
-    }
-
-    protected function disk(): string
-    {
-        if (empty($this->disk)) {
-            return config('nova-data-sync.exports.disk');
-        }
-
-        return $this->disk;
-    }
-
-    private function initializeExport(int $totalRecords): Export
-    {
+        Log::debug('ExportProcessor user info', [
+            'user_id' => $this->userId,
+        ]);
         return Export::query()->create([
-            'user_id' => $this->user?->id ?? null,
-            'user_type' => !empty($this->user) ? get_class($this->user) : null,
+            'user_id' => $this->userId,
+            'user_type' => $this->userType,
             'status' => Status::PENDING->value,
             'processor' => self::class,
-            'file_total_rows' => $totalRecords,
+            'file_total_rows' => $totalRow,
             'started_at' => now(),
+            'batch_uuid' => $batchUuid,
         ]);
     }
 
     public function setUser(Authenticatable $user): self
     {
         $this->user = $user;
+        $this->userId = $user->getAuthIdentifier();
+        $this->userType = get_class($user);
 
+        return $this;
+    }
+
+    public function setPerPage(int $perPage): self
+    {
+        $this->perPage = $perPage;
+        return $this;
+    }
+
+    public function setName(string $name): self
+    {
+        $this->name = $name;
         return $this;
     }
 
     public function setDisk(string $disk): self
     {
         $this->disk = $disk;
-
         return $this;
     }
 
     public function setDirectory(string $directory): self
     {
         $this->directory = $directory;
-
         return $this;
     }
+
 }

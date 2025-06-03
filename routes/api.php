@@ -1,6 +1,6 @@
 <?php
 
-use Coreproc\NovaDataSync\Import\Http\Controllers\ImportSampleController;
+use Wsaefulloh\NovaDataSync\Import\Http\Controllers\ImportSampleController;
 use Illuminate\Support\Facades\Route;
 
 /*

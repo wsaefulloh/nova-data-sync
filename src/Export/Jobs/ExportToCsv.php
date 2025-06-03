@@ -1,6 +1,6 @@
 <?php
 
-namespace Coreproc\NovaDataSync\Export\Jobs;
+namespace Wsaefulloh\NovaDataSync\Export\Jobs;
 
 use Illuminate\Bus\Batchable;
 use Illuminate\Bus\Queueable;
@@ -9,68 +9,87 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Wsaefulloh\NovaDataSync\Export\Jobs\ExportProcessor;
+use Illuminate\Support\Facades\Log; 
 use Spatie\SimpleExcel\SimpleExcelWriter;
+use Carbon\Carbon;
 use stdClass;
 
 class ExportToCsv implements ShouldQueue
 {
     use Batchable, Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    /**
-     * Create a new job instance.
-     */
-    public function __construct(
-        protected ExportProcessor $processor,
-        protected int             $page,
-        protected int             $perPage,
-        protected string          $batchUuid)
+    public $tries = 6;
+    public $maxExceptions = 2;
+    public $timeout = 90;
+    public $failOnTimeout = true;
+
+    public function retryUntil(): \DateTimeInterface
     {
-        $this->onQueue(config('nova-data-sync.exports.queue', 'default'));
+        return Carbon::now()->addHours(1);
     }
 
-    /**
-     * Execute the job.
-     */
+    public function __construct(
+        private ExportProcessor $processor,
+        private int $page,
+        private int $perPage,
+        private string $batchUuid,
+    ) {
+    }
+
+    public function displayName(): string
+    {
+        $displayName = sprintf("%s-%s-%s", self::class, $this->batch()->id, $this->page);
+        Log::info(sprintf('[%s] [%s] displayName [%s]', self::class, $this->batchUuid, $displayName), []);
+        return $displayName;
+    }
+
     public function handle(): void
     {
-        $items = $this->processor->query()->forPage($this->page, $this->perPage)->get();
+        try {
+            $items = $this->processor->query()->forPage($this->page, $this->perPage)->get();
 
-        if (empty($items)) {
-            return;
-        }
+            if (empty($items)) return;
 
-        // Leading index is used to make sure that the files are sorted
-        $leadingIndex = str_pad($this->page, 5, '0', STR_PAD_LEFT);
+            $leadingIndex = str_pad($this->page, 5, '0', STR_PAD_LEFT);
+            $fileName = "export-{$this->batch()->id}-{$leadingIndex}.csv";
+            $csvPath = $this->storagePath($fileName);
+            $csvWriter = SimpleExcelWriter::create($csvPath, 'csv');
 
-        $fileName = "export-{$this->batchUuid}-{$leadingIndex}.csv";
-        $csvPath = $this->storagePath($fileName);
-        $csvWriter = SimpleExcelWriter::create($csvPath, 'csv');
+            Log::info(sprintf('[%s] [%s] file info', self::class, $this->batchUuid), [
+                'fileName' => $fileName,
+                'csvPath' => $csvPath,
+            ]);
 
-        $items->each(function ($item) use ($csvWriter) {
-            if ($item instanceof Model) {
-                $item = $item->toArray();
-            }
-
-            if ($item instanceof stdClass) {
-                $item = json_decode(json_encode($item), true);
-            }
-
-            // Convert arrays inside $data to strings
-            foreach ($item as $key => $value) {
-                if (is_array($value)) {
-                    $item[$key] = json_encode($value);
+            $items->each(function ($item) use ($csvWriter) {
+                if ($item instanceof Model) {
+                    $item = $item->toArray();
                 }
-            }
 
-            $csvWriter->addRow($item);
-        });
+                if ($item instanceof stdClass) {
+                    $item = json_decode(json_encode($item), true);
+                }
 
-        $csvWriter->close();
+                foreach ($item as $key => $value) {
+                    if (is_array($value)) {
+                        $item[$key] = json_encode($value);
+                    }
+                }
+
+                $csvWriter->addRow($item);
+            });
+
+            $csvWriter->close();
+        } catch (\Throwable $e) {
+            Log::error(sprintf('[%s] [%s] ', self::class, $this->batchUuid), [
+                'batchId' => $this->batch()->id,
+                'exception' => $e,
+            ]);
+        }
     }
 
     protected function storagePath($path = ''): string
     {
-        // create temp directory if it doesn't exist
         if (!is_dir(storage_path('app/temp'))) {
             mkdir(storage_path('app/temp'));
         }

@@ -1,22 +1,23 @@
 <?php
 
-namespace Coreproc\NovaDataSync\Import\Listeners;
+namespace Wsaefulloh\NovaDataSync\Import\Listeners;
 
-use Coreproc\NovaDataSync\Import\Events\ImportStartedEvent;
+use Wsaefulloh\NovaDataSync\Import\Events\ImportStartedEvent;
 use Laravel\Nova\Notifications\NovaNotification;
 
 class SendImportStartedNovaNotification
 {
-    /**
-     * Handle the event.
-     */
     public function handle(ImportStartedEvent $event): void
     {
+        if (!$event->import->user) {
+            return;
+        }
+
         $event->import->user->notify(
             NovaNotification::make()
                 ->message('Your import has started. Processor: ' . $event->import->processor_short_name)
                 ->url('/resources/imports/' . $event->import->id)
-                ->icon('view')
+                ->icon('upload')
                 ->type('info')
         );
     }

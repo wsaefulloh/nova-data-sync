@@ -1,6 +1,6 @@
 <?php
 
-namespace Coreproc\NovaDataSync\Import\Models;
+namespace Wsaefulloh\NovaDataSync\Import\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
@@ -10,6 +10,12 @@ use Spatie\MediaLibrary\InteractsWithMedia;
 class Import extends Model implements HasMedia
 {
     use InteractsWithMedia;
+
+    public function __construct(array $attributes = [])
+    {
+        parent::__construct($attributes);
+        $this->setTable(config('nova-data-sync.imports.table_name', 'imports'));
+    }
 
     protected $fillable = [
         'user_id',

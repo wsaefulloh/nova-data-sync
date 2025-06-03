@@ -1,8 +1,8 @@
 <?php
 
-namespace Coreproc\NovaDataSync\Import\Events;
+namespace Wsaefulloh\NovaDataSync\Import\Events;
 
-use Coreproc\NovaDataSync\Import\Models\Import;
+use Wsaefulloh\NovaDataSync\Import\Models\Import;
 use Illuminate\Broadcasting\InteractsWithSockets;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;

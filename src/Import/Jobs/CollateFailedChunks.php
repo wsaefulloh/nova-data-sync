@@ -1,8 +1,9 @@
 <?php
 
-namespace Coreproc\NovaDataSync\Import\Jobs;
+namespace Wsaefulloh\NovaDataSync\Import\Jobs;
 
-use Coreproc\NovaDataSync\Import\Models\Import;
+use Wsaefulloh\NovaDataSync\Import\Models\Import;
+use Exception;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -36,68 +37,111 @@ class CollateFailedChunks implements ShouldQueue
      */
     public function handle(): void
     {
-        Log::debug('[ProcessFailedChunks] Processing failed chunks', [
+        Log::info('[CollateFailedChunks] Processing failed chunks', [
             'import_id' => $this->import->id,
+            'processor' => $this->import->processor,
         ]);
 
         $failedChunksMedia = $this->import->getMedia('failed-chunks');
 
         if ($failedChunksMedia->count() === 0) {
-            Log::debug('[ProcessFailedChunks] No failed chunks found', [
+            Log::info('[CollateFailedChunks] No failed chunks found', [
                 'import_id' => $this->import->id,
+                'processor' => $this->import->processor,
             ]);
             return;
         }
 
         $failedImportsFilePath = storage_path("app/import-{$this->import->id}-failed.csv");
-        $failedImportWriter = SimpleExcelWriter::create($failedImportsFilePath);
+
+        try {
+            $failedImportWriter = SimpleExcelWriter::create($failedImportsFilePath);
+        } catch (Exception $e) {
+            Log::error('[CollateFailedChunks] Failed to create writer for failed imports file', [
+                'import_id' => $this->import->id,
+                'exception' => $e->getMessage(),
+            ]);
+            return;
+        }
 
         $hasFailedRows = false;
 
         $failedChunksMedia->each(function (Media $media) use ($failedImportWriter, &$hasFailedRows) {
-            Log::debug('[ProcessFailedChunks] Processing failed chunk media', [
-                'import_id' => $this->import->id,
-                'media_id' => $media->id,
-            ]);
+            try {
+                Log::debug('[CollateFailedChunks] Processing failed chunk media', [
+                    'import_id' => $this->import->id,
+                    'media_id' => $media->id,
+                ]);
 
-            // Temporarily save the file to the local storage
-            $filepath = storage_path('app/' . $media->uuid . '-' . Str::random(4) . '.csv');
-            $mediaContent = stream_get_contents($media->stream());
-            file_put_contents($filepath, $mediaContent);
+                $filepath = storage_path('app/' . $media->uuid . '-' . Str::random(4) . '.csv');
 
-            $failedRows = SimpleExcelReader::create($filepath)->getRows();
+                $mediaStream = $media->stream();
+                if (!is_resource($mediaStream)) {
+                    Log::warning('[CollateFailedChunks] Media stream is invalid', [
+                        'media_id' => $media->id,
+                    ]);
+                    return;
+                }
 
-            if ($failedRows->count() > 0) {
-                $hasFailedRows = true;
-                // Read the file and write it to the failed import file
-                $failedImportWriter->addRows($failedRows);
+                $mediaContent = stream_get_contents($mediaStream);
+                file_put_contents($filepath, $mediaContent);
+
+                $failedRows = SimpleExcelReader::create($filepath)->getRows();
+
+                if ($failedRows->isNotEmpty()) {
+                    $hasFailedRows = true;
+                    $failedImportWriter->addRows($failedRows);
+                }
+
+                unlink($filepath);
+            } catch (Exception $e) {
+                Log::error('[CollateFailedChunks] Error processing chunk', [
+                    'media_id' => $media->id,
+                    'exception' => $e->getMessage(),
+                ]);
             }
 
-            // Delete the file from the local storage
-            unlink($filepath);
-
-            // Delete the media from the import
-            $media->delete();
+            try {
+                $media->delete();
+            } catch (Exception $e) {
+                Log::warning('[CollateFailedChunks] Failed to delete failed chunk media', [
+                    'import_id' => $this->import->id,
+                    'media_id' => $media->id,
+                    'exception' => $e->getMessage(),
+                ]);
+            }
         });
 
         $failedImportWriter->close();
 
-        // Delete all failed media chunks
         $this->import->clearMediaCollection('failed-chunks');
 
         if (!$hasFailedRows) {
-            Log::debug('[ProcessFailedChunks] No failed rows found', [
+            Log::info('[CollateFailedChunks] No failed rows found', [
                 'import_id' => $this->import->id,
+                'processor' => $this->import->processor,
             ]);
-            unlink($failedImportsFilePath);
+
+            if (file_exists($failedImportsFilePath)) {
+                unlink($failedImportsFilePath);
+            }
+
             return;
         }
 
-        $this->import->addMedia($failedImportsFilePath)
-            ->toMediaCollection('failed', config('nova-data-sync.imports.disk'));
+        try {
+            $this->import->addMedia($failedImportsFilePath)
+                ->toMediaCollection('failed', config('nova-data-sync.imports.disk'));
 
-        Log::debug('[ProcessFailedChunks] Finished processing failed chunks', [
-            'import_id' => $this->import->id,
-        ]);
+            Log::info('[CollateFailedChunks] Finished processing failed chunks', [
+                'import_id' => $this->import->id,
+                'processor' => $this->import->processor,
+            ]);
+        } catch (Exception $e) {
+            Log::error('[CollateFailedChunks] Failed to attach failed import file to media', [
+                'import_id' => $this->import->id,
+                'exception' => $e->getMessage(),
+            ]);
+        }
     }
 }

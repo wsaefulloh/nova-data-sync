@@ -1,8 +1,8 @@
 <?php
 
-namespace Coreproc\NovaDataSync\Import\Http\Controllers;
+namespace Wsaefulloh\NovaDataSync\Import\Http\Controllers;
 
-use Coreproc\NovaDataSync\Import\Jobs\ImportProcessor;
+use Wsaefulloh\NovaDataSync\Import\Jobs\ImportProcessor;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Spatie\SimpleExcel\SimpleExcelWriter;

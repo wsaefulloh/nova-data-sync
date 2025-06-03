@@ -1,55 +1,45 @@
 <?php
 
-namespace Coreproc\NovaDataSync\Import\Jobs;
+namespace Wsaefulloh\NovaDataSync\Import\Jobs;
 
-use Coreproc\NovaDataSync\Import\Models\Import;
+use Wsaefulloh\NovaDataSync\Enum\Status;
+use Wsaefulloh\NovaDataSync\Import\Models\Import;
 use Illuminate\Bus\Batchable;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\LazyCollection;
 use Illuminate\Validation\ValidationException;
 use Spatie\MediaLibrary\MediaCollections\Exceptions\FileDoesNotExist;
 use Spatie\MediaLibrary\MediaCollections\Exceptions\FileIsTooBig;
+use Spatie\SimpleExcel\SimpleExcelReader;
 use Spatie\SimpleExcel\SimpleExcelWriter;
 use Str;
 use Throwable;
 
 abstract class ImportProcessor implements ShouldQueue
 {
-    use Batchable;
-    use Dispatchable;
-    use InteractsWithQueue;
-    use Queueable;
-    use SerializesModels;
+    use Batchable, Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     protected SimpleExcelWriter $failedImportsReportWriter;
-
     protected string $className;
+    protected int $processedCount = 0;
+    protected int $failedCount = 0;
 
     public function __construct(
-        protected Import         $import,
-        protected LazyCollection $rows,
-        protected int            $index
-    )
-    {
+        protected Import $import,
+        protected string $csvFilePath,
+        protected int    $index
+    ) {
         $this->queue = config('nova-data-sync.imports.queue', 'default');
-        $this->className = self::class;
-        Log::debug('[' . $this->className . '] Initialized');
+        $this->className = static::class;
     }
 
     abstract public static function expectedHeaders(): array;
-
     abstract protected function rules(array $row, int $rowIndex): array;
-
-    /**
-     * Process the row and return your newly created model.
-     *
-     * @var array $row contains the row data from the CSV file.
-     */
     abstract protected function process(array $row, int $rowIndex): void;
 
     public static function chunkSize(): int
@@ -63,37 +53,101 @@ abstract class ImportProcessor implements ShouldQueue
      */
     public function handle(): void
     {
-        Log::debug('[' . $this->className . '] Starting import...');
+        if ($this->shouldQuit()) {
+            return;
+        }
 
-        // Initialize failed imports report
-        $this->initializeFailedImportsReport();
+        Log::info("[$this->className] Import processor started", [
+            'import_id' => $this->import->id,
+        ]);
 
-        $chunkIndex = $this->index;
+        try {
+            $this->initializeFailedImportsReport();
+        } catch (Throwable $e) {
+            Log::error("[$this->className] Failed to initialize failed imports report", [
+                'import_id' => $this->import->id,
+                'exception' => $e->getMessage(),
+            ]);
+            return;
+        }
 
-        $this->rows->each(function ($row, $index) use ($chunkIndex) {
-            $rowIndex = $chunkIndex + $index + 1;
+        if (!file_exists($this->csvFilePath)) {
+            try {
+                $media = $this->import->getFirstMedia('file');
+                $mediaStream = $media->stream();
+
+                if (!is_resource($mediaStream)) {
+                    Log::warning("[$this->className] Media stream is invalid", [
+                        'import_id' => $this->import->id,
+                    ]);
+                    return;
+                }
+
+                $mediaContent = stream_get_contents($mediaStream);
+                file_put_contents($this->csvFilePath, $mediaContent);
+            } catch (Throwable $e) {
+                Log::error("[$this->className] Failed to retrieve media content", [
+                    'import_id' => $this->import->id,
+                    'exception' => $e->getMessage(),
+                ]);
+                return;
+            }
+        }
+
+        try {
+            $readerRows = SimpleExcelReader::create($this->csvFilePath, 'csv')->getRows();
+        } catch (Throwable $e) {
+            Log::error("[$this->className] Failed to read CSV file", [
+                'csv_path' => $this->csvFilePath,
+                'exception' => $e->getMessage(),
+            ]);
+            return;
+        }
+
+        $rows = $readerRows->skip($this->index)->take(static::chunkSize());
+
+        $rows->each(function ($row, $index) {
+            if ($this->shouldQuit()) {
+                return false;
+            }
+
+            $rowIndex = $index + 1;
 
             try {
                 $this->validateRow($row, $rowIndex);
                 $this->process($row, $rowIndex);
-                $this->incrementTotalRowsProcessed($rowIndex);
+                $this->incrementTotalRowsProcessed();
             } catch (Throwable $e) {
                 $this->incrementTotalRowsFailed($row, $rowIndex, $e->getMessage());
             }
+
+            return true;
         });
 
-        $this->failedImportsReportWriter->close();
+        $this->finish();
 
-        // Upload to media library
-        $this->import->addMedia($this->failedImportsReportWriter->getPath())
-            ->toMediaCollection('failed-chunks', config('nova-data-sync.imports.disk'));
+        try {
+            $this->failedImportsReportWriter->close();
+
+            $this->import->addMedia($this->failedImportsReportWriter->getPath())
+                ->toMediaCollection('failed-chunks', config('nova-data-sync.imports.disk'));
+        } catch (Throwable $e) {
+            Log::error("[$this->className] Failed to attach failed import chunk to media", [
+                'import_id' => $this->import->id,
+                'exception' => $e->getMessage(),
+            ]);
+        }
     }
 
-    protected function incrementTotalRowsProcessed($rowIndex): void
+    protected function incrementTotalRowsProcessed(): void
     {
-        Log::debug("[{$this->className}] Processed row {$rowIndex}");
+        $this->processedCount++;
 
-        $this->import->increment('total_rows_processed');
+        if ($this->processedCount >= 100) {
+            Log::debug("[{$this->className}] Processed 100 rows, committing to database...");
+            $this->import->increment('total_rows_processed', $this->processedCount);
+            $this->processedCount = 0;
+        }
     }
 
     protected function incrementTotalRowsFailed($row, $rowIndex, $message): void
@@ -106,11 +160,24 @@ abstract class ImportProcessor implements ShouldQueue
         data_set($row, 'origin_row', $rowIndex);
         data_set($row, 'error', $message);
 
-        $this->failedImportsReportWriter->addRow($row);
+        try {
+            $this->failedImportsReportWriter->addRow($row);
+        } catch (Throwable $e) {
+            Log::error("[{$this->className}] Failed to write failed row to report", [
+                'row' => $row,
+                'exception' => $e->getMessage(),
+            ]);
+        }
 
-        $this->import->increment('total_rows_failed');
+        $this->failedCount++;
 
-        $this->incrementTotalRowsProcessed($rowIndex);
+        if ($this->failedCount >= 100) {
+            Log::debug("[{$this->className}] Failed 100 rows, committing to database...");
+            $this->import->increment('total_rows_failed', $this->failedCount);
+            $this->failedCount = 0;
+        }
+
+        // ⚠️ Jangan tambahkan $this->incrementTotalRowsProcessed() di sini
     }
 
     private function initializeFailedImportsReport(): void
@@ -141,5 +208,52 @@ abstract class ImportProcessor implements ShouldQueue
         }
 
         return true;
+    }
+
+    protected function shouldQuit(): bool
+    {
+        if ($this->processedCount % $this->rowsToProcessBeforeCheckingForQuit() !== 0) {
+            return false;
+        }
+
+        $shouldQuit = Cache::remember(
+            'nova-data-sync-import-' . $this->import->id . '-should-stop',
+            now()->addSeconds($this->secondsBeforeCheckingForQuit()),
+            function () {
+                $this->import->refresh();
+                return in_array($this->import->status, [Status::STOPPING->value, Status::STOPPED->value]);
+            }
+        );
+
+        if ($shouldQuit) {
+            Log::info('[' . static::class . '] Stopping import processor', [
+                'import_id' => $this->import->id,
+            ]);
+        }
+
+        return $shouldQuit;
+    }
+
+    protected function rowsToProcessBeforeCheckingForQuit(): int
+    {
+        return 10;
+    }
+
+    protected function secondsBeforeCheckingForQuit(): int
+    {
+        return 10;
+    }
+
+    protected function finish(): void
+    {
+        if ($this->processedCount > 0) {
+            $this->import->increment('total_rows_processed', $this->processedCount);
+            $this->processedCount = 0;
+        }
+
+        if ($this->failedCount > 0) {
+            $this->import->increment('total_rows_failed', $this->failedCount);
+            $this->failedCount = 0;
+        }
     }
 }

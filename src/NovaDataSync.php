@@ -1,8 +1,8 @@
 <?php
 
-namespace Coreproc\NovaDataSync;
+namespace Wsaefulloh\NovaDataSync;
 
-use Coreproc\NovaDataSync\Resources\Import;
+use Wsaefulloh\NovaDataSync\Resources\Import;
 use Illuminate\Http\Request;
 use Laravel\Nova\Exceptions\NovaException;
 use Laravel\Nova\Menu\MenuItem;
