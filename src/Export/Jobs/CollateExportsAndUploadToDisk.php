@@ -10,7 +10,6 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
-// use Log;
 use Spatie\MediaLibrary\MediaCollections\Exceptions\FileDoesNotExist;
 use Spatie\MediaLibrary\MediaCollections\Exceptions\FileIsTooBig;
 use Spatie\SimpleExcel\SimpleExcelReader;
@@ -111,93 +110,7 @@ class CollateExportsAndUploadToDisk implements ShouldQueue
             throw $e;
         }
     }
-    // public function handle(): void
-    // {
-    //     try {
-    //         // $batch = \Illuminate\Support\Facades\Bus::findBatch($this->batchId);
-
-    //         // if ($batch && $batch->cancelled()) {
-    //         //     Log::info('Batch cancelled before starting job.', [
-    //         //         'job' => static::class,
-    //         //         'batchId' => $this->batchId,
-    //         //     ]);
-    //         //     throw new ManuallyFailedException('Batch was cancelled before job started.');
-    //         // }
-
-    //         $files = $this->getFilesSortedByIndex($this->batchId);
-    //         $this->validateTotalFileAndJob($files);
-
-    //         $collatedFileName = $this->exportName . '_' . now()->format('Y-m-d_H:i:s') . '.csv';
-    //         $collatedFilePath = $this->storagePath($collatedFileName);
-    //         $collatedFileWriter = SimpleExcelWriter::create($collatedFilePath);
-
-    //         // if (method_exists($this, 'batch') && $this->batch()?->cancelled()) {
-    //         if (method_exists($this, 'batch') && $this->$batchId->cancelled()) {
-    //             \Log::info('Batch cancelled, skipping job.', ['job' => static::class]);
-    //             return;
-    //         }
-
-    //         Log::info(sprintf('[%s] [%s] Collating files', self::class, $this->batchUuid), [
-    //             'fileCount' => count($files),
-    //             'collatedFilePath' => $collatedFilePath,
-    //         ]);
-
-    //         foreach ($files as $file) {
-    //             // Cek cancel di tengah loop
-    //             if ($batch && $batch->cancelled()) {
-    //                 Log::warning(sprintf('[%s] [%s] Job cancelled mid-process. Aborting...', self::class, $this->batchUuid), [
-    //                     'currentFile' => $file,
-    //                 ]);
-    //                 $collatedFileWriter->close();
-    //                 $this->deleteAllFile($files);
-    //                 throw new ManuallyFailedException('Batch was cancelled during processing.');
-    //             }
-
-    //             $fullPath = $this->storagePath($file);
-    //             if (!file_exists($fullPath)) {
-    //                 Log::warning(sprintf('[%s] [%s] Skipping missing chunk file', self::class, $this->batchUuid), [
-    //                     'missingFile' => $file,
-    //                 ]);
-    //                 continue;
-    //             }
-
-    //             $fileRows = SimpleExcelReader::create($fullPath)->getRows();
-    //             $collatedFileWriter->addRows($fileRows);
-    //         }
-
-    //         $collatedFileWriter->close();
-
-    //         $this->deleteAllFile($files);
-    //         Log::info(sprintf('[%s] [%s] Deleted temp files after collating', self::class, $this->batchUuid), [
-    //             'deletedFiles' => count($files),
-    //         ]);
-
-    //         $finalCollateFilePath = "{$this->exportDirectory}/{$collatedFileName}";
-
-    //         $this->export->addMedia($collatedFilePath)
-    //             ->toMediaCollection('file', $this->exportDisk);
-
-    //         Log::info(sprintf('[%s] [%s] Uploaded collated file to disk', self::class, $this->batchUuid), [
-    //             'disk' => $this->exportDisk,
-    //             'path' => $finalCollateFilePath,
-    //         ]);
-
-    //         $this->export->update([
-    //             'filename' => $collatedFileName,
-    //             'status' => Status::COMPLETED->value,
-    //             'completed_at' => now(),
-    //         ]);
-
-    //         Log::info(sprintf('[%s] [%s] Export marked as completed', self::class, $this->batchUuid), [
-    //             'exportId' => $this->export->id,
-    //         ]);
-    //     } catch (Throwable $e) {
-    //         Log::error(sprintf('[%s] [%s] Exception in handle()', self::class, $this->batchUuid), [
-    //             'exception' => $e,
-    //         ]);
-    //         throw $e;
-    //     }
-    // }
+    
 
     public function failed(?Throwable $e): void
     {
